@@ -25,14 +25,14 @@ dependencies {
     // GPIO Button Driver.
     compile 'com.google.android.things.contrib:driver-button:0.3'
 
+    // Temp & Pressure Sensor.
+    compile 'com.google.android.things.contrib:driver-bmx280:0.3'
+
     // Accelerometer
     compile 'com.google.android.things.contrib:driver-mma7660fc:0.2'
 
     // GPS
     compile 'com.google.android.things.contrib:driver-gps:0.3'
-
-    // Temp & Pressure Sensor.
-    compile 'com.google.android.things.contrib:driver-bmx280:0.3'
 
     // RxJava
     compile 'io.reactivex.rxjava2:rxjava:2.0.1'

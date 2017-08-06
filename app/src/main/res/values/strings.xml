@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Things Experiments</string>
+    <string name="ip_address">IP Address: </string>
 </resources>

@@ -1,4 +1,8 @@
 <resources>
     <string name="app_name">Things Experiments</string>
-    <string name="ip_address">IP Address: </string>
+    <string name="ip_address">IP Address:</string>
+    <string name="longitude">Longitude:</string>
+    <string name="latitude">Latitude:</string>
+    <string name="pressure">Air Pressure:</string>
+    <string name="temperature">Temperature:</string>
 </resources>

@@ -11,13 +11,16 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.HandlerThread;
 import android.util.Log;
+import android.view.TextureView;
 import android.widget.TextView;
 
 import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver;
 import com.google.android.things.contrib.driver.button.Button;
 import com.google.android.things.contrib.driver.gps.NmeaGpsDriver;
 import com.google.android.things.contrib.driver.mma7660fc.Mma7660FcAccelerometerDriver;
+import com.google.android.things.pio.PeripheralManagerService;
 
 import java.io.IOException;
 import java.net.SocketException;
@@ -58,13 +61,30 @@ public class MainActivity extends Activity {
     private PressureSensorEventListener pressureSensorEventListener;
     private AccelerometerSensorEventListener accelerometerSensorEventListener;
 
-    private GpsLocationListener gpsLocationListener;
+    private double temperature;
+    private TextView temperatureView;
+
+    private double pressure;
+    private TextView pressureView;
+
+    private double latitude;
+    private TextView latitudeView;
+
+    private double longitude;
+    private TextView longitudeView;
+
+     private GpsLocationListener gpsLocationListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         Log.d(TAG, "onCreate");
+
+        temperatureView = (TextView) findViewById(R.id.label_temperature);
+        pressureView = (TextView) findViewById(R.id.label_pressure);
+        longitudeView = (TextView) findViewById(R.id.label_longitude);
+        latitudeView = (TextView) findViewById(R.id.label_latitude);
 
         // Get instance of locatinManager
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -95,16 +115,18 @@ public class MainActivity extends Activity {
         }
 
         // Set up GPS Driver
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-            try {
-                gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY);
-                gpsDriver.register();
-                gpsLocationListener = new GpsLocationListener();
-                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0, 0, gpsLocationListener);
-                Log.d(TAG, "Regisetred NmeaGpsDriver");
-            } catch (IOException e) {
-                Log.d(TAG, "Unable to register NmeaGpsDriver: " + e.getLocalizedMessage());
-            }
+        try {
+            gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY);
+            gpsDriver.register();
+            Log.d(TAG, "Regisetred NmeaGpsDriver");
+        } catch (IOException e) {
+            Log.d(TAG, "Unable to register NmeaGpsDriver: " + e.getLocalizedMessage());
+        }
+
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            gpsLocationListener = new GpsLocationListener();
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10, 10, gpsLocationListener);
         }
 
         // Setup GPIO Button to trigger camera (for now).
@@ -298,7 +320,21 @@ public class MainActivity extends Activity {
 
         @Override
         public void onSensorChanged(SensorEvent event) {
-            Log.d(TAG, "Temperature onSensorChanged: Temperature = " + event.values[0]);
+            if (event.values.length == 0) {
+                return;
+            }
+            double newTemperature = Math.round((event.values[0] * 1.8 + 32) *10.00) / 10.00;
+
+            if (temperature != newTemperature) {
+                temperature = newTemperature;
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        temperatureView.setText(getString(R.string.temperature) + " " + String.valueOf(temperature));
+                    }
+                });
+            }
         }
 
         @Override
@@ -311,7 +347,21 @@ public class MainActivity extends Activity {
 
         @Override
         public void onSensorChanged(SensorEvent event) {
-            Log.d(TAG, "Pressure onSensorChanged: Pressure = " + event.values[0]);
+            if (event.values.length == 0) {
+                return;
+            }
+            double newPressure = Math.round(event.values[0] * 10.0) / 10.0;
+
+            if (pressure != newPressure) {
+                pressure = newPressure;
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        pressureView.setText(getString(R.string.pressure) + " " + String.valueOf(pressure));
+                    }
+                });
+            }
         }
 
         @Override
@@ -338,6 +388,8 @@ public class MainActivity extends Activity {
         @Override
         public void onLocationChanged(Location location) {
             Log.d(TAG, "Location update: " + location);
+            longitudeView.setText(getResources().getString(R.string.longitude) + " " + String.valueOf(location.getLongitude()));
+            latitudeView.setText(getResources().getString(R.string.latitude) + " " + String.valueOf(location.getLatitude()));
         }
 
         @Override

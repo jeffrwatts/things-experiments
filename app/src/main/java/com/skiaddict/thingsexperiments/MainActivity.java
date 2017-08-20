@@ -11,6 +11,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 import android.view.TextureView;
@@ -73,7 +74,9 @@ public class MainActivity extends Activity {
     private double longitude;
     private TextView longitudeView;
 
-     private GpsLocationListener gpsLocationListener;
+    private GpsLocationListener gpsLocationListener;
+    private HandlerThread gpsHandlerThread;
+    private Handler gpsHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -116,7 +119,10 @@ public class MainActivity extends Activity {
 
         // Set up GPS Driver
         try {
-            gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY);
+            gpsHandlerThread = new HandlerThread("UART");
+            gpsHandlerThread.start();
+            gpsHandler = new Handler(gpsHandlerThread.getLooper());
+            gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY, gpsHandler);
             gpsDriver.register();
             Log.d(TAG, "Regisetred NmeaGpsDriver");
         } catch (IOException e) {

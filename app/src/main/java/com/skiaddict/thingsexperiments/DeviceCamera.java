@@ -5,6 +5,8 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.ImageFormat;
+import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
@@ -12,11 +14,15 @@ import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
+import android.media.ImageReader;
+import android.os.Handler;
+import android.support.annotation.IntDef;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.Pair;
 import android.view.Surface;
 
+import java.util.Collections;
 import java.util.List;
 
 import io.reactivex.Observable;
@@ -30,192 +36,171 @@ import io.reactivex.ObservableOnSubscribe;
 public class DeviceCamera {
 
     private static final String TAG = MainActivity.class.getSimpleName();
+    private static final int IMAGE_WIDTH = 640;
+    private static final int IMAGE_HEIGHT = 480;
+    private static final int MAX_IMAGES = 1;
 
-    public enum DeviceStateEvents {
-        ON_OPENED,
-        ON_CLOSED,
-        ON_DISCONNECTED
+    private static DeviceCamera deviceCameraInstance = null;
+
+    private ImageReader imageReader;
+    private CameraDevice cameraDevice;
+    private CameraCaptureSession cameraCaptureSession;
+
+    public static DeviceCamera getInstance() {
+        if (null == deviceCameraInstance) {
+            deviceCameraInstance = new DeviceCamera();
+        }
+        return deviceCameraInstance;
     }
 
-    public enum CaptureSessionStateEvents {
-        ON_CONFIGURED,
-        ON_READY,
-        ON_ACTIVE,
-        ON_CLOSED,
-        ON_SURFACE_PREPARED
-    }
+    public void initializeCamera(Context context,
+                                 Handler cameraHandler) {
 
-    public enum CaptureSessionEvents {
-        ON_STARTED,
-        ON_PROGRESSED,
-        ON_COMPLETED,
-        ON_SEQUENCE_COMPLETED,
-        ON_SEQUENCE_ABORTED
-    }
+        if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            // No permissions.
+            Log.d(TAG, "Camera Permissions not granted.  This must be first run.  Reboot the device.");
+            return;
+        }
 
-    public static class CaptureSessionData {
-        final CaptureSessionEvents event;
-        final CameraCaptureSession session;
-        final CaptureRequest request;
-        final CaptureResult result;
+        // Discover the camera instance
+        CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
 
-        CaptureSessionData(CaptureSessionEvents event, CameraCaptureSession session, CaptureRequest request, CaptureResult result) {
-            this.event = event;
-            this.session = session;
-            this.request = request;
-            this.result = result;
+        String[] cameraIds = {};
+        try {
+            cameraIds = cameraManager.getCameraIdList();
+        } catch (CameraAccessException e) {
+           Log.d(TAG, "getCameraIdList failed: " + e.getLocalizedMessage());
+        }
+
+        if (cameraIds.length < 1) {
+            Log.d(TAG, "No Cameras returned.");
+            return;
+        }
+
+        try {
+            // For now, just open the first camera.
+            cameraManager.openCamera(cameraIds[0], stateCallback, cameraHandler);
+        } catch (CameraAccessException e) {
+            Log.d(TAG, "openCamera failed: " + e.getLocalizedMessage());
         }
     }
 
-    public static Observable<Pair<DeviceStateEvents, CameraDevice>> openCamera (
-            @NonNull final Context context) {
-        return Observable.create(new ObservableOnSubscribe<Pair<DeviceStateEvents, CameraDevice>>() {
-            @Override
-            public void subscribe(final ObservableEmitter<Pair<DeviceStateEvents, CameraDevice>> emitter) throws Exception {
-                // First find a camera.
-                CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-                String[] cameraIdList = cameraManager.getCameraIdList();
-                if (null == cameraIdList || cameraIdList.length == 0) {
-                    Log.d(TAG, "openCamera: No Cameras Found.");
-                    emitter.onError(new Throwable("No Cameras Found."));
-                    return;
-                }
+    public void takePicture(Handler cameraHandler,
+            ImageReader.OnImageAvailableListener imageAvailableListener) {
 
-                if (context.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-                    Log.d(TAG, "openCamera: Missing Manifest.permission.CAMERA.");
-                    emitter.onError(new Throwable("Missing Manifest.permission.CAMERA"));
-                    return;
-                }
+        if (cameraDevice == null) {
+            Log.w(TAG, "takePicture(). Camera not initialized.");
+            return;
+        }
 
-                cameraManager.openCamera(cameraIdList[0], new CameraDevice.StateCallback() {
-                    @Override
-                    public void onOpened(@NonNull CameraDevice camera) {
-                        Log.d(TAG, "openCamera: onOpened");
-                        emitter.onNext(Pair.create(DeviceStateEvents.ON_OPENED, camera));
-                    }
+        if (null != imageReader) {
+            imageReader.close();
+        }
+        imageReader = ImageReader.newInstance(IMAGE_WIDTH, IMAGE_HEIGHT, ImageFormat.JPEG, MAX_IMAGES);
+        imageReader.setOnImageAvailableListener(imageAvailableListener, cameraHandler);
 
-                    @Override
-                    public void onDisconnected(@NonNull CameraDevice camera) {
-                        Log.d(TAG, "openCamera: onDisconnected");
-                        emitter.onNext(Pair.create(DeviceStateEvents.ON_DISCONNECTED, camera));
-                    }
-
-                    @Override
-                    public void onClosed(@NonNull CameraDevice camera) {
-                        Log.d(TAG, "openCamera: onClosed");
-                        emitter.onNext(Pair.create(DeviceStateEvents.ON_CLOSED, camera));
-                    }
-
-                    @Override
-                    public void onError(@NonNull CameraDevice camera, int error) {
-                        Log.d(TAG, "openCamera: onError: " + error);
-                        emitter.onError(new Throwable("openCamera Failed with %d" + error));
-                    }
-                }, null);
-            }
-         });
+        try {
+            List outputs = Collections.singletonList(imageReader.getSurface());
+            cameraDevice.createCaptureSession(outputs, sessionCallback, null);
+        } catch (CameraAccessException e) {
+            Log.d(TAG, "createCaptureSession failed: " + e.getLocalizedMessage());
+        }
     }
 
-    @NonNull
-    public static Observable<Pair<CaptureSessionStateEvents, CameraCaptureSession>> createCaptureSession(
-            @NonNull final CameraDevice cameraDevice,
-            @NonNull final List<Surface> surfaceList ) {
-        return Observable.create(new ObservableOnSubscribe<Pair<CaptureSessionStateEvents, CameraCaptureSession>>() {
-            @Override
-            public void subscribe(final ObservableEmitter<Pair<CaptureSessionStateEvents, CameraCaptureSession>> emitter) throws Exception {
-                cameraDevice.createCaptureSession(surfaceList, new CameraCaptureSession.StateCallback() {
-                    @Override
-                    public void onConfigured(@NonNull CameraCaptureSession session) {
-                        Log.d(TAG, "createCaptureSession: onConfigured");
-                        emitter.onNext(Pair.create(CaptureSessionStateEvents.ON_CONFIGURED, session));
-                    }
-
-                    @Override
-                    public void onConfigureFailed(@NonNull CameraCaptureSession session) {
-                        Log.d(TAG, "createCaptureSession: onConfigureFailed");
-                        emitter.onError(new Throwable("createCaptureSession failed"));
-                    }
-
-                    @Override
-                    public void onReady(@NonNull CameraCaptureSession session) {
-                        Log.d(TAG, "createCaptureSession: onReady");
-                        emitter.onNext(Pair.create(CaptureSessionStateEvents.ON_READY, session));
-                    }
-
-                    @Override
-                    public void onActive(@NonNull CameraCaptureSession session) {
-                        Log.d(TAG, "createCaptureSession: onActive");
-                        emitter.onNext(Pair.create(CaptureSessionStateEvents.ON_ACTIVE, session));
-                    }
-
-                    @Override
-                    public void onClosed(@NonNull CameraCaptureSession session) {
-                        Log.d(TAG, "createCaptureSession: onClosed");
-                        emitter.onNext(Pair.create(CaptureSessionStateEvents.ON_CLOSED, session));
-                        emitter.onComplete();
-                    }
-
-                    @Override
-                    public void onSurfacePrepared(@NonNull CameraCaptureSession session, @NonNull Surface surface) {
-                        Log.d(TAG, "createCaptureSession: onSurfacePrepared");
-                        emitter.onNext(Pair.create(CaptureSessionStateEvents.ON_SURFACE_PREPARED, session));
-                    }
-                }, null);
-            }
-        });
+    public void shutDown() {
+        closeCaptureSession();
+        if (cameraDevice != null) {
+            cameraDevice.close();
+        }
     }
 
-    @NonNull
-    private static CameraCaptureSession.CaptureCallback createCaptureCallback(final ObservableEmitter<CaptureSessionData> emitter) {
-        return new CameraCaptureSession.CaptureCallback() {
-
-            @Override
-            public void onCaptureStarted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, long timestamp, long frameNumber) {
+    private void closeCaptureSession() {
+        if (cameraCaptureSession != null) {
+            try {
+                cameraCaptureSession.close();
+            } catch (Exception ex) {
+                Log.e(TAG, "Could not close capture session", ex);
             }
-
-            @Override
-            public void onCaptureProgressed(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull CaptureResult partialResult) {
-            }
-
-            @Override
-            public void onCaptureCompleted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull TotalCaptureResult result) {
-                if (!emitter.isDisposed()) {
-                    emitter.onNext(new CaptureSessionData(CaptureSessionEvents.ON_COMPLETED, session, request, result));
-                }
-            }
-
-            @Override
-            public void onCaptureFailed(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, @NonNull CaptureFailure failure) {
-                if (!emitter.isDisposed()) {
-                    emitter.onError(new Throwable("onCaptureFailed"));
-                }
-            }
-
-            @Override
-            public void onCaptureSequenceCompleted(@NonNull CameraCaptureSession session, int sequenceId, long frameNumber) {
-            }
-
-            @Override
-            public void onCaptureSequenceAborted(@NonNull CameraCaptureSession session, int sequenceId) {
-            }
-        };
+            cameraCaptureSession = null;
+        }
     }
 
-    private static Observable<CaptureSessionData> fromSetRepeatingRequest(@NonNull final CameraCaptureSession captureSession, @NonNull final CaptureRequest request) {
-        return Observable.create(new ObservableOnSubscribe<CaptureSessionData>() {
-            @Override
-            public void subscribe(final ObservableEmitter<CaptureSessionData> emitter) throws Exception {
-                captureSession.setRepeatingRequest(request, createCaptureCallback(emitter), null);
-            }
-        });
+    private void captureImage() {
+        try {
+            final CaptureRequest.Builder captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureBuilder.addTarget(imageReader.getSurface());
+            captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            Log.d(TAG, "Capture request created.");
+
+            cameraCaptureSession.capture(captureBuilder.build(), captureCallback, null);
+        } catch (CameraAccessException e) {
+            Log.d(TAG, "Capture failed: " + e.getLocalizedMessage());
+        }
     }
 
-    private static Observable<CaptureSessionData> fromCapture(@NonNull final CameraCaptureSession captureSession, @NonNull final CaptureRequest request) {
-        return Observable.create(new ObservableOnSubscribe<CaptureSessionData>() {
-            @Override
-            public void subscribe(ObservableEmitter<CaptureSessionData> emitter) throws Exception {
-                captureSession.capture(request, createCaptureCallback(emitter), null);
+
+    private final CameraDevice.StateCallback stateCallback = new CameraDevice.StateCallback() {
+        @Override
+        public void onOpened(@NonNull CameraDevice device) {
+            Log.d(TAG, "CameraDevice.StateCallback:onOpened");
+            cameraDevice = device;
+        }
+        @Override
+        public void onDisconnected(@NonNull CameraDevice device) {
+            Log.d(TAG, "CameraDevice.StateCallback:onDisconnected");
+            closeCaptureSession();
+            cameraDevice.close();
+        }
+        @Override
+        public void onError(@NonNull CameraDevice device, int i) {
+            Log.d(TAG, "CameraDevice.StateCallback:onError");
+            closeCaptureSession();
+            cameraDevice.close();
+        }
+        @Override
+        public void onClosed(@NonNull CameraDevice device) {
+            Log.d(TAG, "CameraDevice.StateCallback:onClosed");
+            cameraDevice = null;
+        }
+    };
+
+    private final CameraCaptureSession.StateCallback sessionCallback = new CameraCaptureSession.StateCallback() {
+
+        @Override
+        public void onConfigured(@NonNull CameraCaptureSession session) {
+            Log.d(TAG, "CameraCaptureSession.StateCallback:onConfigured");
+
+            if (null == cameraDevice) {
+                Log.d(TAG, "cameraDevice is null.");
+                return;
             }
-        });
-    }
+
+            cameraCaptureSession = session;
+            captureImage();
+        }
+
+        @Override
+        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+            Log.d(TAG, "CameraCaptureSession.StateCallback:onConfigureFailed");
+        }
+    };
+
+    private final CameraCaptureSession.CaptureCallback captureCallback = new CameraCaptureSession.CaptureCallback() {
+        @Override
+        public void onCaptureProgressed(@NonNull CameraCaptureSession session,
+                                        @NonNull CaptureRequest request,
+                                        @NonNull CaptureResult partialResult) {
+            Log.d(TAG, "CameraCaptureSession.CaptureCallback:onCaptureProgressed");
+        }
+
+        @Override
+        public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                       @NonNull CaptureRequest request,
+                                       @NonNull TotalCaptureResult result) {
+            Log.d(TAG, "CameraCaptureSession.CaptureCallback:onCaptureCompleted");
+            session.close();
+            cameraCaptureSession = null;
+            Log.d(TAG, "CaptureSession closed");
+        }
+    };
 }

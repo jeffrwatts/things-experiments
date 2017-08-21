@@ -3,6 +3,8 @@ package com.skiaddict.thingsexperiments;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -10,11 +12,14 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.media.Image;
+import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 import android.view.TextureView;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver;
@@ -25,6 +30,7 @@ import com.google.android.things.pio.PeripheralManagerService;
 
 import java.io.IOException;
 import java.net.SocketException;
+import java.nio.ByteBuffer;
 import java.util.List;
 
 import io.reactivex.Observable;
@@ -48,8 +54,6 @@ public class MainActivity extends Activity {
     public static final int UART_BAUD = 9600;
     public static final float GPS_ACCURACY = 2.5f; // From GPS datasheet
 
-    private Button cameraButton;
-    private DeviceCamera deviceCamera;
     private SensorManager sensorManager;
     private LocationManager locationManager;
     private DynamicSensorCallback dynamicSensorCallback;
@@ -74,9 +78,14 @@ public class MainActivity extends Activity {
     private double longitude;
     private TextView longitudeView;
 
+    private Button cameraButton;
+    private DeviceCamera deviceCamera;
+    private ImageView cameraImageView;
+
     private GpsLocationListener gpsLocationListener;
-    private HandlerThread gpsHandlerThread;
-    private Handler gpsHandler;
+
+    private HandlerThread backgroundThread;
+    private Handler backgroundHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,10 +93,16 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         Log.d(TAG, "onCreate");
 
+        backgroundThread = new HandlerThread("Background Thread");
+        backgroundThread.start();
+        backgroundHandler = new Handler(backgroundThread.getLooper());
+
+
         temperatureView = (TextView) findViewById(R.id.label_temperature);
         pressureView = (TextView) findViewById(R.id.label_pressure);
         longitudeView = (TextView) findViewById(R.id.label_longitude);
         latitudeView = (TextView) findViewById(R.id.label_latitude);
+        cameraImageView = (ImageView) findViewById(R.id.cameraImage);
 
         // Get instance of locatinManager
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -119,10 +134,7 @@ public class MainActivity extends Activity {
 
         // Set up GPS Driver
         try {
-            gpsHandlerThread = new HandlerThread("UART");
-            gpsHandlerThread.start();
-            gpsHandler = new Handler(gpsHandlerThread.getLooper());
-            gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY, gpsHandler);
+            gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY, backgroundHandler);
             gpsDriver.register();
             Log.d(TAG, "Regisetred NmeaGpsDriver");
         } catch (IOException e) {
@@ -135,6 +147,10 @@ public class MainActivity extends Activity {
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10, 10, gpsLocationListener);
         }
 
+        // Set up Camera Device
+        deviceCamera = DeviceCamera.getInstance();
+        deviceCamera.initializeCamera(this, backgroundHandler);
+
         // Setup GPIO Button to trigger camera (for now).
         try {
             cameraButton = new Button(BUTTON_GPIO_PIN, Button.LogicState.PRESSED_WHEN_LOW);
@@ -142,7 +158,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onButtonEvent(Button button, boolean pressed) {
                     if (true == pressed) {
-                        takePicture();
+                        deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
                     }
                 }
             });
@@ -196,13 +212,13 @@ public class MainActivity extends Activity {
         } catch (IOException e) {
         }
 
-            try {
-                if (null != gpsDriver) {
-                    gpsDriver.unregister();
-                    gpsDriver.close();
-                }
-            } catch (IOException e) {
+        try {
+            if (null != gpsDriver) {
+                gpsDriver.unregister();
+                gpsDriver.close();
             }
+        } catch (IOException e) {
+        }
 
         // Remove the sensor callback.
         sensorManager.unregisterDynamicSensorCallback(dynamicSensorCallback);
@@ -212,40 +228,6 @@ public class MainActivity extends Activity {
             cameraButton.close();
         } catch (IOException e) {
         }
-    }
-
-    private void takePicture() {
-        // Just testing Rx.
-        Observable<String> observable = Observable.create(new ObservableOnSubscribe<String>() {
-            @Override
-            public void subscribe(ObservableEmitter<String> e) throws Exception {
-                e.onNext("Test 1");
-                e.onNext("Test 2");
-                e.onNext("Test 3");
-                e.onNext("Test 4");
-                e.onNext("Test 5");
-                e.onComplete();
-            }
-        });
-
-        observable.subscribeOn(AndroidSchedulers.mainThread())
-                .observeOn(Schedulers.io())
-                .subscribeWith(new DisposableObserver<String>() {
-                    @Override
-                    public void onNext(String value) {
-                        Log.d(TAG, "onNext: " + value);
-                    }
-
-                    @Override
-                    public void onError(Throwable e) {
-                        Log.d(TAG, "onError");
-                    }
-
-                    @Override
-                    public void onComplete() {
-                        Log.d(TAG, "onComplete");
-                    }
-                });
     }
 
     void displayIpAddress () {
@@ -269,6 +251,24 @@ public class MainActivity extends Activity {
         TextView ipAddressView = (TextView)findViewById(R.id.label_ip_address);
         ipAddressView.setText(sb.toString());
     }
+
+    private ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+            Image image = reader.acquireLatestImage();
+            ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+            byte[] bytes = new byte[buffer.capacity()];
+            buffer.get(bytes);
+            final Bitmap bitmapImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
+
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    cameraImageView.setImageBitmap(bitmapImage);
+                }
+            });
+        }
+    };
 
 
     private class DynamicSensorCallback extends SensorManager.DynamicSensorCallback {

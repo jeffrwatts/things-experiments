@@ -35,10 +35,11 @@ import io.reactivex.ObservableOnSubscribe;
 
 public class DeviceCamera {
 
-    private static final String TAG = MainActivity.class.getSimpleName();
-    private static final int IMAGE_WIDTH = 640;
-    private static final int IMAGE_HEIGHT = 480;
-    private static final int MAX_IMAGES = 1;
+    private static final String TAG = DeviceCamera.class.getSimpleName();
+
+    public static final int IMAGE_WIDTH = 640;
+    public static final int IMAGE_HEIGHT = 480;
+    public static final int MAX_IMAGES = 1;
 
     private static DeviceCamera deviceCameraInstance = null;
 

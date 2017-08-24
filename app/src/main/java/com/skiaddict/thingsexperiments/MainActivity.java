@@ -78,6 +78,10 @@ public class MainActivity extends Activity {
     private double longitude;
     private TextView longitudeView;
 
+    private TextView result1View;
+    private TextView result2View;
+    private TextView result3View;
+
     private Button cameraButton;
     private DeviceCamera deviceCamera;
     private ImageView cameraImageView;
@@ -86,6 +90,8 @@ public class MainActivity extends Activity {
 
     private HandlerThread backgroundThread;
     private Handler backgroundHandler;
+
+    private ImageClassifier imageClassifier;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -165,6 +171,12 @@ public class MainActivity extends Activity {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        result1View = (TextView)findViewById(R.id.result1);
+        result2View = (TextView)findViewById(R.id.result2);
+        result3View = (TextView)findViewById(R.id.result3);
+
+        imageClassifier = new ImageClassifier(this);
     }
 
     @Override
@@ -254,17 +266,39 @@ public class MainActivity extends Activity {
 
     private ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {
         @Override
-        public void onImageAvailable(ImageReader reader) {
+        public void onImageAvailable(final ImageReader reader) {
             Image image = reader.acquireLatestImage();
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.capacity()];
             buffer.get(bytes);
-            final Bitmap bitmapImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
+            Bitmap bitmapImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
+
+            final Bitmap croppedImage = imageClassifier.cropAndRescaleBitmap(bitmapImage);
+            final List<ImageClassifier.ClassificationResult> results = imageClassifier.doRecognize(croppedImage);
 
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    cameraImageView.setImageBitmap(bitmapImage);
+                    cameraImageView.setImageBitmap(croppedImage);
+
+                    if (results.size() > 0) {
+                        result1View.setText(results.get(0).label + " - Confidence: " + results.get(0).confidence);
+                    } else {
+                        result1View.setText("No Result.");
+                    }
+
+                    if (results.size() > 1) {
+                        result2View.setText(results.get(1).label + " - Confidence: " + results.get(1).confidence);
+                    } else {
+                        result2View.setText("");
+                    }
+
+                    if (results.size() > 2) {
+                        result3View.setText(results.get(2).label + " - Confidence: " + results.get(2).confidence);
+                    } else {
+                        result3View.setText("");
+                    }
+
                 }
             });
         }

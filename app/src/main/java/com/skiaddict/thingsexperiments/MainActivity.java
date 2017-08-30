@@ -176,13 +176,12 @@ public class MainActivity extends Activity {
         result2View = (TextView)findViewById(R.id.result2);
         result3View = (TextView)findViewById(R.id.result3);
 
-        imageClassifier = new ImageClassifier(this);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-        displayIpAddress();
+        backgroundHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                imageClassifier = new ImageClassifier(MainActivity.this);
+            }
+        });
     }
 
     @Override
@@ -240,28 +239,6 @@ public class MainActivity extends Activity {
             cameraButton.close();
         } catch (IOException e) {
         }
-    }
-
-    void displayIpAddress () {
-        StringBuilder sb = new StringBuilder(getResources().getString(R.string.ip_address));
-        try {
-            List<String> addresses = NetworkUtil.getIPAddressList();
-
-            if (addresses.isEmpty()) {
-                sb.append("No IP Address Found.");
-            }
-
-            for (String addressIx : addresses) {
-                sb.append(addressIx);
-                sb.append("; ");
-            }
-        } catch (SocketException e) {
-            // Display whatever failure happened.
-            sb.append("Failed to get IP Address" + e.getLocalizedMessage());
-        }
-
-        TextView ipAddressView = (TextView)findViewById(R.id.label_ip_address);
-        ipAddressView.setText(sb.toString());
     }
 
     private ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {

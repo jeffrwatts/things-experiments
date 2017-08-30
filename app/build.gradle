@@ -3,13 +3,13 @@ apply plugin: 'de.undercouch.download'
 
 
 android {
-    compileSdkVersion 25
-    buildToolsVersion "25.0.2"
+    compileSdkVersion 26
+    buildToolsVersion '26.0.1'
 
     defaultConfig {
         applicationId "com.skiaddict.thingsexperiments"
         minSdkVersion 24
-        targetSdkVersion 25
+        targetSdkVersion 26
         versionCode 1
         versionName "1.0"
     }
@@ -52,24 +52,18 @@ repositories {
 }
 
 dependencies {
-    provided 'com.google.android.things:androidthings:0.4.1-devpreview'
-
+    provided 'com.google.android.things:androidthings:0.5.1-devpreview'
     // GPIO Button Driver.
     compile 'com.google.android.things.contrib:driver-button:0.3'
-
     // Temp & Pressure Sensor.
     compile 'com.google.android.things.contrib:driver-bmx280:0.3'
-
     // Accelerometer
     compile 'com.google.android.things.contrib:driver-mma7660fc:0.2'
-
     // GPS
     compile 'com.google.android.things.contrib:driver-gps:0.3'
-
     // RxJava
     compile 'io.reactivex.rxjava2:rxjava:2.0.1'
     compile 'io.reactivex.rxjava2:rxandroid:2.0.1'
-
     // TensorFlow
     compile 'org.tensorflow:tensorflow-android:1.2.0'
 }

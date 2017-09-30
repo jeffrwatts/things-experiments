@@ -25,10 +25,6 @@ import android.view.Surface;
 import java.util.Collections;
 import java.util.List;
 
-import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableOnSubscribe;
-
 /**
  * Created by jewatts on 7/27/17.
  */

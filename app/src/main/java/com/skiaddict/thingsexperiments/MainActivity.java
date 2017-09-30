@@ -24,6 +24,8 @@ import android.widget.TextView;
 import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver;
 import com.google.android.things.contrib.driver.button.Button;
 import com.google.android.things.contrib.driver.gps.NmeaGpsDriver;
+import com.google.android.things.pio.Gpio;
+import com.google.android.things.pio.PeripheralManagerService;
 import com.skiaddict.thingsexperiments.hardware.MotionDetector;
 
 import java.io.IOException;
@@ -47,6 +49,9 @@ public class MainActivity extends Activity {
 
     // For MotionDetector
     private static final String MOTION_DETECTOR_PIN = "BCM4";
+
+    // "Busy" LED Pin.
+    private static final String BUSY_LED_PIN = "BCM16";
 
     private SensorManager sensorManager;
     private LocationManager locationManager;
@@ -82,6 +87,9 @@ public class MainActivity extends Activity {
     private MotionDetector motionDetector;
     private TextView motionDetectedView;
 
+    private Gpio gpioBusyLed;
+    private boolean busy;
+
     private GpsLocationListener gpsLocationListener;
 
     private HandlerThread backgroundThread;
@@ -106,6 +114,17 @@ public class MainActivity extends Activity {
         result2View = (TextView)findViewById(R.id.result2);
         result3View = (TextView)findViewById(R.id.result3);
 
+
+        // Set up "busy" LED
+        PeripheralManagerService service = new PeripheralManagerService();
+        try {
+            gpioBusyLed = service.openGpio(BUSY_LED_PIN);
+            gpioBusyLed.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
+            gpioBusyLed.setValue(true); // Turn on while we initialize.
+            busy = true;
+        } catch (IOException e) {
+            Log.d(TAG, "Unable to initialize output pin: " + e.getLocalizedMessage());
+        }
 
         // Get instance of locatinManager
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -163,6 +182,9 @@ public class MainActivity extends Activity {
             cameraButton.setOnButtonEventListener(new Button.OnButtonEventListener() {
                 @Override
                 public void onButtonEvent(Button button, boolean pressed) {
+                    if (true == busy) {
+                        return;
+                    }
                     if (true == pressed) {
                         deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
                     }
@@ -176,6 +198,13 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 imageClassifier = new ImageClassifier(MainActivity.this);
+                try {
+                    // Initialized, turn off.
+                    busy = false;
+                    gpioBusyLed.setValue(false);
+                } catch (IOException e) {
+                    Log.d(TAG, "Unable to set pin to off: " + e.getLocalizedMessage());
+                }
             }
         });
     }
@@ -184,6 +213,13 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "onDestroy");
+
+        try {
+            if (null != gpioBusyLed) {
+                gpioBusyLed.close();
+            }
+        } catch (IOException e) {
+        }
 
         // Unregister temperator and pressure sensors.
         if (null != temperatureSensorEventListener) {
@@ -233,20 +269,36 @@ public class MainActivity extends Activity {
     private ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(final ImageReader reader) {
+
+            // Turn on busy indicator so we know we are processing.
+            try {
+                gpioBusyLed.setValue(true);
+            } catch (IOException e) {
+            }
+
             Image image = reader.acquireLatestImage();
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.capacity()];
             buffer.get(bytes);
             Bitmap bitmapImage = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, null);
 
+            // Send image to UI.
             final Bitmap croppedImage = imageClassifier.cropAndRescaleBitmap(bitmapImage);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    cameraImageView.setImageBitmap(croppedImage);
+                    result1View.setText("Identifying image...");
+                    result2View.setText("");
+                    result3View.setText("");
+                }
+            });
+
             final List<ImageClassifier.ClassificationResult> results = imageClassifier.doRecognize(croppedImage);
 
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    cameraImageView.setImageBitmap(croppedImage);
-
                     if (results.size() > 0) {
                         result1View.setText(results.get(0).label + " - Confidence: " + results.get(0).confidence);
                     } else {
@@ -267,6 +319,12 @@ public class MainActivity extends Activity {
 
                 }
             });
+
+            // Turn off busy indicator... we are ready for more.
+            try {
+                gpioBusyLed.setValue(false);
+            } catch (IOException e) {
+            }
         }
     };
 
@@ -395,8 +453,18 @@ public class MainActivity extends Activity {
 
         @Override
         public void onMotionDetectedEvent(boolean active) {
+            if (false == active) {
+                motionDetectedView.setText("Motion: Idle");
+                return;
+            }
 
-            motionDetectedView.setText(active ? "Motion: Active" : "Motion: Idle");
+            if (true == busy) {
+                motionDetectedView.setText("Motion: Active, Busy!");
+                return;
+            }
+
+            motionDetectedView.setText("Motion: Active");
+            deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
         }
     }
 }

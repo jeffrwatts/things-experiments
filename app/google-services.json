@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "813861495969",
+    "firebase_url": "https://motion-detector-181114.firebaseio.com",
+    "project_id": "motion-detector-181114",
+    "storage_bucket": "motion-detector-181114.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:813861495969:android:c7d668e1651864ae",
+        "android_client_info": {
+          "package_name": "com.skiaddict.thingsexperiments"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "813861495969-196b2e88i3kbeb4to9k1lvu2orre7lei.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.skiaddict.thingsexperiments",
+            "certificate_hash": "f5b8ea63faa0f9096eacc74fb55bea0fa460af75"
+          }
+        },
+        {
+          "client_id": "813861495969-tgmnvfir8t1cl18587dvrbrndq8iljkv.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDn7P8XGg_vPvb0-HKrdpsGJtRh0a7rh28"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "813861495969-tgmnvfir8t1cl18587dvrbrndq8iljkv.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

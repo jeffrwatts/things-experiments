@@ -18,27 +18,18 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
-import android.view.TextureView;
 import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver;
 import com.google.android.things.contrib.driver.button.Button;
 import com.google.android.things.contrib.driver.gps.NmeaGpsDriver;
-import com.google.android.things.contrib.driver.mma7660fc.Mma7660FcAccelerometerDriver;
-import com.google.android.things.pio.PeripheralManagerService;
+import com.skiaddict.thingsexperiments.hardware.MotionDetector;
 
 import java.io.IOException;
-import java.net.SocketException;
 import java.nio.ByteBuffer;
 import java.util.List;
 
-import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableOnSubscribe;
-import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.observers.DisposableObserver;
-import io.reactivex.schedulers.Schedulers;
 
 public class MainActivity extends Activity {
     private static final String TAG = MainActivity.class.getSimpleName();
@@ -46,7 +37,7 @@ public class MainActivity extends Activity {
     // For Button
     private final String BUTTON_GPIO_PIN = "BCM21";
 
-    // For Temperature, Pressure, Accelerometer.
+    // For Temperature, Pressure.
     private final String I2C1_PIN = "I2C1";
 
     // For GPS
@@ -54,17 +45,19 @@ public class MainActivity extends Activity {
     public static final int UART_BAUD = 9600;
     public static final float GPS_ACCURACY = 2.5f; // From GPS datasheet
 
+    // For MotionDetector
+    private static final String MOTION_DETECTOR_PIN = "BCM4";
+
     private SensorManager sensorManager;
     private LocationManager locationManager;
     private DynamicSensorCallback dynamicSensorCallback;
 
     private Bmx280SensorDriver bmx280SensorDriver;
-    private Mma7660FcAccelerometerDriver accelerometerDriver;
     private NmeaGpsDriver gpsDriver;
 
     private TemperatureSensorEventListener temperatureSensorEventListener;
     private PressureSensorEventListener pressureSensorEventListener;
-    private AccelerometerSensorEventListener accelerometerSensorEventListener;
+    private MotionDetectorEventListener motionDetectorEventListener;
 
     private double temperature;
     private TextView temperatureView;
@@ -86,6 +79,9 @@ public class MainActivity extends Activity {
     private DeviceCamera deviceCamera;
     private ImageView cameraImageView;
 
+    private MotionDetector motionDetector;
+    private TextView motionDetectedView;
+
     private GpsLocationListener gpsLocationListener;
 
     private HandlerThread backgroundThread;
@@ -99,16 +95,17 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         Log.d(TAG, "onCreate");
 
-        backgroundThread = new HandlerThread("Background Thread");
-        backgroundThread.start();
-        backgroundHandler = new Handler(backgroundThread.getLooper());
-
-
         temperatureView = (TextView) findViewById(R.id.label_temperature);
         pressureView = (TextView) findViewById(R.id.label_pressure);
         longitudeView = (TextView) findViewById(R.id.label_longitude);
         latitudeView = (TextView) findViewById(R.id.label_latitude);
         cameraImageView = (ImageView) findViewById(R.id.cameraImage);
+        motionDetectedView = (TextView) findViewById(R.id.label_motion);
+
+        result1View = (TextView)findViewById(R.id.result1);
+        result2View = (TextView)findViewById(R.id.result2);
+        result3View = (TextView)findViewById(R.id.result3);
+
 
         // Get instance of locatinManager
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -128,16 +125,6 @@ public class MainActivity extends Activity {
             Log.d(TAG, "Unable to register Bmx280SensorDriver: " + e.getLocalizedMessage());
         }
 
-        // Set up Accelerometer Driver
-        try {
-            accelerometerDriver = new Mma7660FcAccelerometerDriver(I2C1_PIN);
-            accelerometerDriver.register();
-            Log.d(TAG, "Regisetred Mma7660FcAccelerometerDriver");
-
-        } catch (IOException e) {
-            Log.d(TAG, "Unable to register Mma7660FcAccelerometerDriver: " + e.getLocalizedMessage());
-        }
-
         // Set up GPS Driver
         try {
             gpsDriver = new NmeaGpsDriver(this, UART_PIN, UART_BAUD, GPS_ACCURACY, backgroundHandler);
@@ -153,7 +140,20 @@ public class MainActivity extends Activity {
             locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10, 10, gpsLocationListener);
         }
 
+        // Set up Motion Detector
+        try {
+            motionDetector = new MotionDetector(MOTION_DETECTOR_PIN);
+            motionDetectorEventListener = new MotionDetectorEventListener();
+            motionDetector.setOnMotionDetectedEventListener(motionDetectorEventListener);
+        } catch (IOException e) {
+            Log.d(TAG, "Unable to register motion detector: " + e.getLocalizedMessage());
+        }
+
         // Set up Camera Device
+        backgroundThread = new HandlerThread("Background Thread");
+        backgroundThread.start();
+        backgroundHandler = new Handler(backgroundThread.getLooper());
+
         deviceCamera = DeviceCamera.getInstance();
         deviceCamera.initializeCamera(this, backgroundHandler);
 
@@ -171,10 +171,6 @@ public class MainActivity extends Activity {
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-        result1View = (TextView)findViewById(R.id.result1);
-        result2View = (TextView)findViewById(R.id.result2);
-        result3View = (TextView)findViewById(R.id.result3);
 
         backgroundHandler.post(new Runnable() {
             @Override
@@ -209,24 +205,17 @@ public class MainActivity extends Activity {
         } catch (IOException e) {
         }
 
-        // Unregister accelerometer.
-        if (null == accelerometerSensorEventListener) {
-            sensorManager.unregisterListener(accelerometerSensorEventListener);
-            accelerometerSensorEventListener = null;
-        }
-
         try {
-            if (null != accelerometerDriver) {
-                accelerometerDriver.unregister();
-                accelerometerDriver.close();
+            if (null != gpsDriver) {
+                gpsDriver.unregister();
+                gpsDriver.close();
             }
         } catch (IOException e) {
         }
 
         try {
-            if (null != gpsDriver) {
-                gpsDriver.unregister();
-                gpsDriver.close();
+            if (null != motionDetector) {
+               motionDetector.close();
             }
         } catch (IOException e) {
         }
@@ -310,16 +299,6 @@ public class MainActivity extends Activity {
                 }
                 pressureSensorEventListener = new PressureSensorEventListener();
                 sensorManager.registerListener(pressureSensorEventListener, sensor, SensorManager.SENSOR_DELAY_NORMAL);
-
-            } else if (sensorType == Sensor.TYPE_ACCELEROMETER) {
-                Log.d(TAG, "Accelerometer Sensor Connected: " + sensor.getName());
-                if (null != accelerometerSensorEventListener) {
-                    sensorManager.unregisterListener(accelerometerSensorEventListener);
-                    accelerometerSensorEventListener = null;
-                }
-                accelerometerSensorEventListener = new AccelerometerSensorEventListener();
-                sensorManager.registerListener(accelerometerSensorEventListener, sensor, SensorManager.SENSOR_DELAY_NORMAL);
-
             }
             else {
                 Log.d(TAG, "onDynamicSensorConnected called for sensor = : " + sensor.getName());
@@ -387,19 +366,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private class AccelerometerSensorEventListener implements SensorEventListener {
-
-        @Override
-        public void onSensorChanged(SensorEvent event) {
-            Log.d(TAG, "Accelerometer onSensorChanged: Values = " + event.values[0]);
-        }
-
-        @Override
-        public void onAccuracyChanged(Sensor sensor, int accuracy) {
-            Log.d(TAG, "Accelerometer onAccuracyChanged: accuracy - " + accuracy);
-        }
-    }
-
     private class GpsLocationListener implements LocationListener {
 
         @Override
@@ -422,6 +388,15 @@ public class MainActivity extends Activity {
         @Override
         public void onProviderDisabled(String provider) {
             Log.d(TAG, "onProviderDisabled.");
+        }
+    }
+
+    private class MotionDetectorEventListener implements MotionDetector.OnMotionDetectedEventListener {
+
+        @Override
+        public void onMotionDetectedEvent(boolean active) {
+
+            motionDetectedView.setText(active ? "Motion: Active" : "Motion: Idle");
         }
     }
 }

@@ -29,6 +29,7 @@ android {
 // Download model zip file into ../../assets directory
 // unzip it to demo project's own ./assets directory
 import de.undercouch.gradle.tasks.download.Download
+
 task downloadFile(type: Download) {
     src 'https://storage.googleapis.com/download.tensorflow.org/models/inception5h.zip'
     dest projectDir.toString() + '/../../assets/inception.zip'
@@ -52,18 +53,24 @@ repositories {
 }
 
 dependencies {
-    provided 'com.google.android.things:androidthings:0.5.1-devpreview'
+    // Android Things
     // GPIO Button Driver.
-    compile 'com.google.android.things.contrib:driver-button:0.3'
     // Temp & Pressure Sensor.
-    compile 'com.google.android.things.contrib:driver-bmx280:0.3'
     // Accelerometer
-    compile 'com.google.android.things.contrib:driver-mma7660fc:0.2'
     // GPS
-    compile 'com.google.android.things.contrib:driver-gps:0.3'
     // RxJava
+    // TensorFlow
+    compile 'com.google.android.things.contrib:driver-button:0.3'
+    compile 'com.google.android.things.contrib:driver-bmx280:0.3'
+    compile 'com.google.android.things.contrib:driver-mma7660fc:0.2'
+    compile 'com.google.android.things.contrib:driver-gps:0.3'
     compile 'io.reactivex.rxjava2:rxjava:2.0.1'
     compile 'io.reactivex.rxjava2:rxandroid:2.0.1'
-    // TensorFlow
     compile 'org.tensorflow:tensorflow-android:1.2.0'
+    compile 'com.google.firebase:firebase-storage:10.0.1'
+    compile 'com.google.firebase:firebase-auth:10.0.1'
+    compile 'com.google.firebase:firebase-database:10.0.1'
+    provided 'com.google.android.things:androidthings:0.5.1-devpreview'
 }
+
+apply plugin: 'com.google.gms.google-services'

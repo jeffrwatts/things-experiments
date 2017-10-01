@@ -53,19 +53,9 @@ repositories {
 }
 
 dependencies {
-    // Android Things
-    // GPIO Button Driver.
-    // Temp & Pressure Sensor.
-    // Accelerometer
-    // GPS
-    // RxJava
-    // TensorFlow
     compile 'com.google.android.things.contrib:driver-button:0.3'
     compile 'com.google.android.things.contrib:driver-bmx280:0.3'
-    compile 'com.google.android.things.contrib:driver-mma7660fc:0.2'
     compile 'com.google.android.things.contrib:driver-gps:0.3'
-    compile 'io.reactivex.rxjava2:rxjava:2.0.1'
-    compile 'io.reactivex.rxjava2:rxandroid:2.0.1'
     compile 'org.tensorflow:tensorflow-android:1.2.0'
     compile 'com.google.firebase:firebase-storage:10.0.1'
     compile 'com.google.firebase:firebase-auth:10.0.1'

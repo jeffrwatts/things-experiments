@@ -85,10 +85,10 @@ public class MainActivity extends Activity {
     private ImageView cameraImageView;
 
     private MotionDetector motionDetector;
-    private TextView motionDetectedView;
+    private TextView statusView;
 
+    boolean motionDetectionActive;
     private Gpio gpioBusyLed;
-    private boolean busy;
 
     private GpsLocationListener gpsLocationListener;
 
@@ -108,20 +108,19 @@ public class MainActivity extends Activity {
         longitudeView = (TextView) findViewById(R.id.label_longitude);
         latitudeView = (TextView) findViewById(R.id.label_latitude);
         cameraImageView = (ImageView) findViewById(R.id.cameraImage);
-        motionDetectedView = (TextView) findViewById(R.id.label_motion);
-
+        statusView = (TextView) findViewById(R.id.label_status);
         result1View = (TextView)findViewById(R.id.result1);
         result2View = (TextView)findViewById(R.id.result2);
         result3View = (TextView)findViewById(R.id.result3);
 
+        motionDetectionActive = false;
+        statusView.setText("Initializing");
 
         // Set up "busy" LED
         PeripheralManagerService service = new PeripheralManagerService();
         try {
             gpioBusyLed = service.openGpio(BUSY_LED_PIN);
-            gpioBusyLed.setDirection(Gpio.DIRECTION_OUT_INITIALLY_LOW);
-            gpioBusyLed.setValue(true); // Turn on while we initialize.
-            busy = true;
+            gpioBusyLed.setDirection(Gpio.DIRECTION_OUT_INITIALLY_HIGH);
         } catch (IOException e) {
             Log.d(TAG, "Unable to initialize output pin: " + e.getLocalizedMessage());
         }
@@ -182,13 +181,7 @@ public class MainActivity extends Activity {
             cameraButton.setOnButtonEventListener(new Button.OnButtonEventListener() {
                 @Override
                 public void onButtonEvent(Button button, boolean pressed) {
-                    if (true == busy) {
-                        return;
-                    }
-                    if (true == pressed) {
-                        deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
-                    }
-                }
+                 }
             });
         } catch (IOException e) {
             e.printStackTrace();
@@ -198,13 +191,13 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 imageClassifier = new ImageClassifier(MainActivity.this);
-                try {
-                    // Initialized, turn off.
-                    busy = false;
-                    gpioBusyLed.setValue(false);
-                } catch (IOException e) {
-                    Log.d(TAG, "Unable to set pin to off: " + e.getLocalizedMessage());
-                }
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        statusView.setText("Ready");
+                        setBusy(false);
+                    }
+                });
             }
         });
     }
@@ -266,16 +259,27 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void setBusy(boolean isBusy) {
+        try {
+            gpioBusyLed.setValue(isBusy);
+        } catch (IOException e) {
+        }
+    }
+
+    private boolean isBusy () {
+        boolean busy = false;
+        try {
+            busy = gpioBusyLed.getValue();
+        } catch (IOException e) {
+        }
+        return busy;
+    }
+
     private ImageReader.OnImageAvailableListener imageAvailableListener = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(final ImageReader reader) {
 
             // Turn on busy indicator so we know we are processing.
-            try {
-                gpioBusyLed.setValue(true);
-            } catch (IOException e) {
-            }
-
             Image image = reader.acquireLatestImage();
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.capacity()];
@@ -287,8 +291,9 @@ public class MainActivity extends Activity {
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
+                    statusView.setText("Identifying Image.");
                     cameraImageView.setImageBitmap(croppedImage);
-                    result1View.setText("Identifying image...");
+                    result1View.setText("");
                     result2View.setText("");
                     result3View.setText("");
                 }
@@ -316,15 +321,16 @@ public class MainActivity extends Activity {
                     } else {
                         result3View.setText("");
                     }
+                    statusView.setText("Identifying Image.");
 
+                    if (true == motionDetectionActive) {
+                        statusView.setText("Reseting");
+                    } else {
+                        statusView.setText("Ready.");
+                    }
+                    setBusy(false);
                 }
             });
-
-            // Turn off busy indicator... we are ready for more.
-            try {
-                gpioBusyLed.setValue(false);
-            } catch (IOException e) {
-            }
         }
     };
 
@@ -453,18 +459,20 @@ public class MainActivity extends Activity {
 
         @Override
         public void onMotionDetectedEvent(boolean active) {
-            if (false == active) {
-                motionDetectedView.setText("Motion: Idle");
-                return;
+
+            if (false == isBusy()) {
+
+                if (true == active) {
+                    setBusy(true);
+                    statusView.setText("Active");
+                    deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
+                } else {
+                    setBusy(false);
+                    statusView.setText("Ready");
+                }
             }
 
-            if (true == busy) {
-                motionDetectedView.setText("Motion: Active, Busy!");
-                return;
-            }
-
-            motionDetectedView.setText("Motion: Active");
-            deviceCamera.takePicture(backgroundHandler, imageAvailableListener);
+            motionDetectionActive = active;
         }
     }
 }
